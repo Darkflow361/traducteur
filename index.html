@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Traducteur temps réel — EN → FR (corrigé)</title>
+  <title>Traducteur temps réel — EN → FR (Google Translate)</title>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
   <style>
     body{font-family:'Poppins',sans-serif;margin:0;background:linear-gradient(135deg,#0f172a,#1e293b);color:#f8fafc;display:flex;flex-direction:column;align-items:center;padding:20px}
@@ -40,11 +40,8 @@
   </div>
 
 <script>
-/* Global config */
-const PRIMARY_TRANSLATE = "https://translate.argosopentech.com/translate";
-const FALLBACK_TRANSLATE = "https://libretranslate.de/translate";
+const PROXY_URL = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=fr&dt=t&q=";
 
-/* UI refs */
 const startBtn = document.getElementById('startBtn');
 const stopBtn  = document.getElementById('stopBtn');
 const clearBtn = document.getElementById('clearBtn');
@@ -52,7 +49,6 @@ const transcriptEl = document.getElementById('transcript');
 const translationEl = document.getElementById('translation');
 const statusEl = document.getElementById('status');
 
-/* Speech recognition setup */
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 if(!SpeechRecognition){
   statusEl.textContent = "Erreur : navigateur non supporté (Web Speech API requis). Utilise Chrome/Edge.";
@@ -60,8 +56,8 @@ if(!SpeechRecognition){
 }
 
 let recognizer = null;
-let lastFinalTranscript = ""; // stocke uniquement la partie finale déjà affichée
-let translateQueue = Promise.resolve(); // sérialise les traductions
+let lastFinalTranscript = "";
+let translateQueue = Promise.resolve();
 
 function initRecognizer() {
   recognizer = new SpeechRecognition();
@@ -82,12 +78,10 @@ function initRecognizer() {
   };
 
   recognizer.onerror = (e) => {
-    console.error("Speech error:", e);
     statusEl.textContent = "Erreur reconnaissance : " + (e.error || "inconnu");
   };
 
   recognizer.onresult = (event) => {
-    // Reconstruire intégralement la partie finale + l'interim à partir de tous les résultats
     let finalAll = "";
     let interimAll = "";
     for (let i = 0; i < event.results.length; i++) {
@@ -98,90 +92,39 @@ function initRecognizer() {
     finalAll = finalAll.trim();
     interimAll = interimAll.trim();
 
-    // Afficher la transcription : finales puis (séparé) l'interim
     transcriptEl.value = finalAll + (interimAll ? ("\n\n" + interimAll) : "");
 
-    // Détecter la nouvelle portion finale qui n'a pas encore été traduite
     let newFinal = "";
     if (finalAll.startsWith(lastFinalTranscript)) {
       newFinal = finalAll.slice(lastFinalTranscript.length).trim();
     } else {
-      // cas où l'indexation diffère : on prend la différence la plus simple
       newFinal = finalAll;
     }
 
     if (newFinal) {
-      // Mettre à jour le marqueur (on le met à jour immédiatement pour éviter double envoi)
       lastFinalTranscript = finalAll;
-      // Lancer traduction sérialisée
       enqueueTranslate(newFinal);
     }
   };
 }
 
-/* Ajoute une traduction à la queue pour éviter les collisions */
 function enqueueTranslate(text){
-  translateQueue = translateQueue.then(() => translateWithFallback(text))
+  translateQueue = translateQueue.then(() => translateGoogle(text))
     .catch(e => {
-      console.error("Queue translate error:", e);
-      statusEl.textContent = "Erreur traduction (queue) : " + (e.message || e);
+      statusEl.textContent = "Erreur traduction : " + (e.message || e);
     });
 }
 
-/* Essaie un endpoint puis fallback, renvoie la traduction ou lève une erreur */
-async function translateWithFallback(text){
+async function translateGoogle(text){
   statusEl.textContent = "Traduction en cours…";
-  try {
-    const t = await callTranslateAPI(PRIMARY_TRANSLATE, text);
-    appendTranslation(t);
-    statusEl.textContent = "État : traduction OK";
-    return;
-  } catch (ePrimary) {
-    console.warn("Primary translate failed:", ePrimary);
-    // fallback
-    try {
-      const t2 = await callTranslateAPI(FALLBACK_TRANSLATE, text);
-      appendTranslation(t2);
-      statusEl.textContent = "État : traduction OK (fallback)";
-      return;
-    } catch (eFallback) {
-      console.error("Fallback translate failed:", eFallback);
-      // afficher message d'erreur clair pour l'utilisateur
-      statusEl.textContent = "Erreur traduction : impossible d'atteindre le service (CORS/quota).";
-      // optionnel : ajouter le message d'erreur dans la console pour debug
-      console.error("Translate errors:", ePrimary, eFallback);
-      throw new Error("Tous les endpoints de traduction ont échoué.");
-    }
-  }
-}
-
-/* Appel standardisé d'APIs LibreTranslate-like */
-async function callTranslateAPI(url, text){
-  const payload = { q: text, source: "en", target: "fr", format: "text" };
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  if (!resp.ok) {
-    const txt = await resp.text();
-    throw new Error(`API ${url} status ${resp.status}: ${txt}`);
-  }
+  const resp = await fetch(PROXY_URL + encodeURIComponent(text));
+  if (!resp.ok) throw new Error("Erreur réseau Google Translate");
   const data = await resp.json();
-  // Plusieurs formats possibles : { translatedText: "..." } ou { translation: "..." }
-  if (data.translatedText) return data.translatedText;
-  if (data.translation) return data.translation;
-  // si la forme est propre à l'API, essayer de récupérer une valeur
-  if (typeof data === "string") return data;
-  return JSON.stringify(data);
+  const translated = data[0].map(item => item[0]).join(" ");
+  translationEl.value += (translationEl.value ? "\n" : "") + translated;
+  statusEl.textContent = "État : traduction OK";
 }
 
-function appendTranslation(txt){
-  if (!txt) return;
-  translationEl.value = (translationEl.value ? (translationEl.value + "\n") : "") + txt;
-}
-
-/* UI events */
 startBtn.addEventListener('click', async () => {
   try {
     await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -192,9 +135,7 @@ startBtn.addEventListener('click', async () => {
   if (!recognizer) initRecognizer();
   try {
     recognizer.start();
-  } catch (e) {
-    console.warn("start error:", e);
-  }
+  } catch (e) {}
 });
 
 stopBtn.addEventListener('click', () => {
@@ -206,11 +147,8 @@ clearBtn.addEventListener('click', () => {
   translationEl.value = "";
   statusEl.textContent = "État : inactif";
   lastFinalTranscript = "";
-  // reset queue
   translateQueue = Promise.resolve();
 });
-
-/* Conseil debug pour toi : ouvre la console (F12) si tu veux voir les erreurs réseau. */
 </script>
 </body>
-
+</html>
