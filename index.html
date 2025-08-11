@@ -3,133 +3,214 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Traducteur temps réel EN → FR</title>
+  <title>Traducteur temps réel — EN → FR (corrigé)</title>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    body{
-      font-family:'Poppins', sans-serif;
-      margin:0;
-      background:linear-gradient(135deg,#0f172a,#1e293b);
-      color:#f8fafc;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      padding:20px;
-    }
-    h1{margin-top:0;text-align:center;font-weight:600;}
-    .card{
-      background:rgba(255,255,255,0.05);
-      backdrop-filter:blur(10px);
-      border-radius:12px;
-      padding:20px;
-      width:100%;
-      max-width:800px;
-      box-shadow:0 4px 20px rgba(0,0,0,0.4);
-    }
-    button{
-      padding:10px 16px;
-      margin:4px;
-      font-size:15px;
-      border:none;
-      border-radius:8px;
-      cursor:pointer;
-      transition:background 0.3s;
-      font-weight:600;
-    }
-    .start{background:#22c55e;color:white;}
-    .start:hover{background:#16a34a;}
-    .stop{background:#ef4444;color:white;}
-    .stop:hover{background:#dc2626;}
-    textarea{
-      width:100%;
-      height:120px;
-      margin-top:6px;
-      border-radius:8px;
-      border:none;
-      padding:10px;
-      font-size:14px;
-      resize:none;
-      background:rgba(255,255,255,0.08);
-      color:#f8fafc;
-    }
+    body{font-family:'Poppins',sans-serif;margin:0;background:linear-gradient(135deg,#0f172a,#1e293b);color:#f8fafc;display:flex;flex-direction:column;align-items:center;padding:20px}
+    h1{margin-top:0;text-align:center;font-weight:600}
+    .card{background:rgba(255,255,255,0.05);backdrop-filter:blur(10px);border-radius:12px;padding:20px;width:100%;max-width:820px;box-shadow:0 4px 20px rgba(0,0,0,0.4)}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+    button{padding:10px 16px;border:none;border-radius:8px;cursor:pointer;font-weight:600}
+    .start{background:#22c55e;color:white}
+    .stop{background:#ef4444;color:white}
+    .clear{background:transparent;color:#cbd5e1;border:1px solid rgba(255,255,255,0.06)}
+    textarea{width:100%;height:120px;margin-top:6px;border-radius:8px;border:none;padding:10px;font-size:14px;resize:none;background:rgba(255,255,255,0.06);color:#f8fafc}
     .status{margin-top:10px;font-size:14px;color:#cbd5e1}
-    @media(max-width:600px){
-      textarea{height:100px;}
-    }
+    @media(max-width:600px){textarea{height:100px}}
   </style>
 </head>
 <body>
   <h1>🎙️ Traducteur temps réel — Anglais → Français</h1>
   <div class="card">
-    <p>Parle en anglais au micro, et la traduction française apparaîtra en dessous.</p>
-    <div>
+    <p>Parle en anglais au micro ; la transcription et la traduction apparaissent ci-dessous.</p>
+
+    <div class="controls">
       <button id="startBtn" class="start">Démarrer</button>
       <button id="stopBtn" class="stop" disabled>Arrêter</button>
+      <button id="clearBtn" class="clear">Effacer</button>
     </div>
-    <h3>Texte détecté (anglais)</h3>
-    <textarea id="transcript" readonly></textarea>
+
+    <h3>Transcription (anglais)</h3>
+    <textarea id="transcript" readonly placeholder="La transcription apparaîtra ici..."></textarea>
+
     <h3>Traduction (français)</h3>
-    <textarea id="translation" readonly></textarea>
+    <textarea id="translation" readonly placeholder="La traduction apparaîtra ici..."></textarea>
+
     <div class="status" id="status">État : inactif</div>
   </div>
 
 <script>
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognizer, recognizing=false;
-const startBtn=document.getElementById('startBtn');
-const stopBtn=document.getElementById('stopBtn');
-const transcriptEl=document.getElementById('transcript');
-const translationEl=document.getElementById('translation');
-const statusEl=document.getElementById('status');
+/* Global config */
+const PRIMARY_TRANSLATE = "https://translate.argosopentech.com/translate";
+const FALLBACK_TRANSLATE = "https://libretranslate.de/translate";
 
-function initRecog(){
-  recognizer=new SpeechRecognition();
-  recognizer.lang='en-US';
-  recognizer.continuous=true;
-  recognizer.interimResults=true;
-  recognizer.onstart=()=>{
-    recognizing=true;statusEl.textContent='État : écoute…';
-    startBtn.disabled=true;stopBtn.disabled=false;
+/* UI refs */
+const startBtn = document.getElementById('startBtn');
+const stopBtn  = document.getElementById('stopBtn');
+const clearBtn = document.getElementById('clearBtn');
+const transcriptEl = document.getElementById('transcript');
+const translationEl = document.getElementById('translation');
+const statusEl = document.getElementById('status');
+
+/* Speech recognition setup */
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if(!SpeechRecognition){
+  statusEl.textContent = "Erreur : navigateur non supporté (Web Speech API requis). Utilise Chrome/Edge.";
+  startBtn.disabled = true;
+}
+
+let recognizer = null;
+let lastFinalTranscript = ""; // stocke uniquement la partie finale déjà affichée
+let translateQueue = Promise.resolve(); // sérialise les traductions
+
+function initRecognizer() {
+  recognizer = new SpeechRecognition();
+  recognizer.lang = 'en-US';
+  recognizer.continuous = true;
+  recognizer.interimResults = true;
+
+  recognizer.onstart = () => {
+    statusEl.textContent = "État : écoute…";
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
   };
-  recognizer.onend=()=>{
-    recognizing=false;statusEl.textContent='État : inactif';
-    startBtn.disabled=false;stopBtn.disabled=true;
+
+  recognizer.onend = () => {
+    statusEl.textContent = "État : inactif";
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
   };
-  recognizer.onresult=(e)=>{
-    let interim='',final='';
-    for(let i=e.resultIndex;i<e.results.length;i++){
-      const res=e.results[i];
-      if(res.isFinal){final+=res[0].transcript;}else{interim+=res[0].transcript;}
+
+  recognizer.onerror = (e) => {
+    console.error("Speech error:", e);
+    statusEl.textContent = "Erreur reconnaissance : " + (e.error || "inconnu");
+  };
+
+  recognizer.onresult = (event) => {
+    // Reconstruire intégralement la partie finale + l'interim à partir de tous les résultats
+    let finalAll = "";
+    let interimAll = "";
+    for (let i = 0; i < event.results.length; i++) {
+      const res = event.results[i];
+      if (res.isFinal) finalAll += res[0].transcript + " ";
+      else interimAll += res[0].transcript + " ";
     }
-    transcriptEl.value=(transcriptEl.value+' '+final+' '+interim).trim();
-    if(final.trim()) translate(final.trim());
+    finalAll = finalAll.trim();
+    interimAll = interimAll.trim();
+
+    // Afficher la transcription : finales puis (séparé) l'interim
+    transcriptEl.value = finalAll + (interimAll ? ("\n\n" + interimAll) : "");
+
+    // Détecter la nouvelle portion finale qui n'a pas encore été traduite
+    let newFinal = "";
+    if (finalAll.startsWith(lastFinalTranscript)) {
+      newFinal = finalAll.slice(lastFinalTranscript.length).trim();
+    } else {
+      // cas où l'indexation diffère : on prend la différence la plus simple
+      newFinal = finalAll;
+    }
+
+    if (newFinal) {
+      // Mettre à jour le marqueur (on le met à jour immédiatement pour éviter double envoi)
+      lastFinalTranscript = finalAll;
+      // Lancer traduction sérialisée
+      enqueueTranslate(newFinal);
+    }
   };
 }
 
-async function translate(txt){
-  statusEl.textContent='Traduction en cours…';
-  try{
-    const r=await fetch("https://translate.argosopentech.com/translate",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({q:txt,source:"en",target:"fr",format:"text"})
+/* Ajoute une traduction à la queue pour éviter les collisions */
+function enqueueTranslate(text){
+  translateQueue = translateQueue.then(() => translateWithFallback(text))
+    .catch(e => {
+      console.error("Queue translate error:", e);
+      statusEl.textContent = "Erreur traduction (queue) : " + (e.message || e);
     });
-    const d=await r.json();
-    translationEl.value+=(translationEl.value?'\n':'')+d.translatedText;
-    statusEl.textContent='État : traduction OK';
-  }catch(e){
-    statusEl.textContent='Erreur traduction';
+}
+
+/* Essaie un endpoint puis fallback, renvoie la traduction ou lève une erreur */
+async function translateWithFallback(text){
+  statusEl.textContent = "Traduction en cours…";
+  try {
+    const t = await callTranslateAPI(PRIMARY_TRANSLATE, text);
+    appendTranslation(t);
+    statusEl.textContent = "État : traduction OK";
+    return;
+  } catch (ePrimary) {
+    console.warn("Primary translate failed:", ePrimary);
+    // fallback
+    try {
+      const t2 = await callTranslateAPI(FALLBACK_TRANSLATE, text);
+      appendTranslation(t2);
+      statusEl.textContent = "État : traduction OK (fallback)";
+      return;
+    } catch (eFallback) {
+      console.error("Fallback translate failed:", eFallback);
+      // afficher message d'erreur clair pour l'utilisateur
+      statusEl.textContent = "Erreur traduction : impossible d'atteindre le service (CORS/quota).";
+      // optionnel : ajouter le message d'erreur dans la console pour debug
+      console.error("Translate errors:", ePrimary, eFallback);
+      throw new Error("Tous les endpoints de traduction ont échoué.");
+    }
   }
 }
 
-startBtn.onclick=async()=>{
-  try{
-    await navigator.mediaDevices.getUserMedia({audio:true});
-    if(!recognizer) initRecog();
+/* Appel standardisé d'APIs LibreTranslate-like */
+async function callTranslateAPI(url, text){
+  const payload = { q: text, source: "en", target: "fr", format: "text" };
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`API ${url} status ${resp.status}: ${txt}`);
+  }
+  const data = await resp.json();
+  // Plusieurs formats possibles : { translatedText: "..." } ou { translation: "..." }
+  if (data.translatedText) return data.translatedText;
+  if (data.translation) return data.translation;
+  // si la forme est propre à l'API, essayer de récupérer une valeur
+  if (typeof data === "string") return data;
+  return JSON.stringify(data);
+}
+
+function appendTranslation(txt){
+  if (!txt) return;
+  translationEl.value = (translationEl.value ? (translationEl.value + "\n") : "") + txt;
+}
+
+/* UI events */
+startBtn.addEventListener('click', async () => {
+  try {
+    await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    statusEl.textContent = "Micro non disponible ou refusé.";
+    return;
+  }
+  if (!recognizer) initRecognizer();
+  try {
     recognizer.start();
-  }catch(e){statusEl.textContent='Micro non disponible';}
-};
-stopBtn.onclick=()=>recognizer.stop();
+  } catch (e) {
+    console.warn("start error:", e);
+  }
+});
+
+stopBtn.addEventListener('click', () => {
+  if (recognizer) recognizer.stop();
+});
+
+clearBtn.addEventListener('click', () => {
+  transcriptEl.value = "";
+  translationEl.value = "";
+  statusEl.textContent = "État : inactif";
+  lastFinalTranscript = "";
+  // reset queue
+  translateQueue = Promise.resolve();
+});
+
+/* Conseil debug pour toi : ouvre la console (F12) si tu veux voir les erreurs réseau. */
 </script>
 </body>
-</html>
+
