@@ -5,24 +5,71 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Traducteur temps réel EN → FR</title>
   <style>
-    body{font-family:sans-serif;margin:0;background:#111;color:#fff;padding:20px}
-    button{padding:8px 14px;margin:4px;font-size:14px}
-    textarea{width:100%;height:120px;margin-top:6px}
-    .status{margin-top:10px;font-size:14px;color:#aaa}
+    body{
+      font-family:Arial, sans-serif;
+      margin:0;
+      background:linear-gradient(135deg,#0f172a,#1e293b);
+      color:#f8fafc;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      padding:20px;
+    }
+    h1{margin-top:0;text-align:center;}
+    .card{
+      background:rgba(255,255,255,0.05);
+      backdrop-filter:blur(10px);
+      border-radius:12px;
+      padding:20px;
+      width:100%;
+      max-width:800px;
+      box-shadow:0 4px 20px rgba(0,0,0,0.4);
+    }
+    button{
+      padding:10px 16px;
+      margin:4px;
+      font-size:15px;
+      border:none;
+      border-radius:8px;
+      cursor:pointer;
+      transition:background 0.3s;
+    }
+    .start{background:#22c55e;color:white;}
+    .start:hover{background:#16a34a;}
+    .stop{background:#ef4444;color:white;}
+    .stop:hover{background:#dc2626;}
+    textarea{
+      width:100%;
+      height:120px;
+      margin-top:6px;
+      border-radius:8px;
+      border:none;
+      padding:10px;
+      font-size:14px;
+      resize:none;
+      background:rgba(255,255,255,0.08);
+      color:#f8fafc;
+    }
+    .status{margin-top:10px;font-size:14px;color:#cbd5e1}
+    @media(max-width:600px){
+      textarea{height:100px;}
+    }
   </style>
 </head>
 <body>
-  <h1>Traducteur temps réel — Anglais → Français</h1>
-  <p>Parle en anglais au micro, et la traduction française apparaîtra en dessous.</p>
-  <div>
-    <button id="startBtn">🎙️ Démarrer</button>
-    <button id="stopBtn" disabled>⏹️ Arrêter</button>
+  <h1>🎙️ Traducteur temps réel — Anglais → Français</h1>
+  <div class="card">
+    <p>Parle en anglais au micro, et la traduction française apparaîtra en dessous.</p>
+    <div>
+      <button id="startBtn" class="start">Démarrer</button>
+      <button id="stopBtn" class="stop" disabled>Arrêter</button>
+    </div>
+    <h3>Texte détecté (anglais)</h3>
+    <textarea id="transcript" readonly></textarea>
+    <h3>Traduction (français)</h3>
+    <textarea id="translation" readonly></textarea>
+    <div class="status" id="status">État : inactif</div>
   </div>
-  <h3>Texte détecté (anglais)</h3>
-  <textarea id="transcript" readonly></textarea>
-  <h3>Traduction (français)</h3>
-  <textarea id="translation" readonly></textarea>
-  <div class="status" id="status">État : inactif</div>
 
 <script>
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
